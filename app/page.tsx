@@ -245,7 +245,7 @@ export default function Dashboard() {
               className="circle-button"
               aria-label="Saved outfits"
               onClick={() => {
-                window.location.href = "/saved";
+                window.location.href = "/saved-outfits";
               }}
             >
               <Heart size={17} />
