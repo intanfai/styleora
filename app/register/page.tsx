@@ -55,8 +55,8 @@ export default function RegisterPage() {
         return;
       }
 
-      if (data.session) {
-        window.location.replace("/");
+      if (data.user && data.user.identities?.length === 0) {
+        setError("Email ini sudah terdaftar. Silakan login atau gunakan email lain.");
         return;
       }
 
