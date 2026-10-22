@@ -1,13 +1,6 @@
-
 import type { Metadata } from "next";
-import { Playfair_Display, DM_Sans } from "next/font/google";
+import { DM_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
-
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  variable: "--font-playfair",
-  display: "swap",
-});
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -15,10 +8,15 @@ const dmSans = DM_Sans({
   display: "swap",
 });
 
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Styleora — Your Personal Stylist",
-  description:
-    "Discover outfit combinations from your own wardrobe with Styleora, your personal AI stylist.",
+  description: "Discover outfit combinations from your own wardrobe with Styleora, your personal AI stylist.",
 };
 
 export default function RootLayout({
@@ -27,14 +25,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${playfair.variable} ${dmSans.variable}`}
-    >
-      <body className="min-h-full flex flex-col font-sans">
-        {children}
-      </body>
+    <html lang="en" suppressHydrationWarning className={`${playfair.variable} ${dmSans.variable}`}>
+      <body className="min-h-screen flex flex-col font-sans">{children}</body>
     </html>
   );
 }

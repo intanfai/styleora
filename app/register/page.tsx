@@ -93,7 +93,7 @@ export default function RegisterPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f5f4ed] px-4 py-8 text-[#30342d] sm:px-6">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-[#e8e6dc] bg-[#fffefa] shadow-[0_24px_80px_rgba(57,65,47,0.09)] lg:min-h-[680px] lg:grid-cols-2">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-[#e8e6dc] bg-[#fffefa] shadow-[0_24px_80px_rgba(57,65,47,0.09)] lg:min-h-170 lg:grid-cols-2">
         <section className="flex flex-col justify-center px-6 py-10 sm:px-12 lg:px-14">
           <Link href="/" className="mb-10 inline-flex w-fit items-center gap-3">
             <span className="brand-icon">
@@ -243,7 +243,7 @@ export default function RegisterPage() {
                 </div>
                 <span className="font-serif text-3xl text-[#40513b]">Your closet,</span>
                 <span className="font-serif text-3xl italic text-[#7d8b71]">your story.</span>
-                <p className="mt-4 max-w-[190px] text-xs leading-5 text-[#85867d]">Discover new combinations from the clothes you already own.</p>
+                <p className="mt-4 max-w-47.5 text-xs leading-5 text-[#85867d]">Discover new combinations from the clothes you already own.</p>
               </div>
             </div>
             <p className="text-center font-serif text-xl italic text-[#52634c]">&ldquo;Your style starts here.&rdquo;</p>

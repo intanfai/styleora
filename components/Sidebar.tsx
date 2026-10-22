@@ -24,14 +24,32 @@ export default function Sidebar() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
-    const supabase = createClient();
     let mounted = true;
+    const supabase = createClient();
 
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (mounted && !error) {
+    async function loadUser() {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+
+        if (!mounted) return;
+
+        if (error) {
+          console.error("Gagal mengambil data user:", error);
+          setEmail(null);
+          return;
+        }
+
         setEmail(data.user?.email ?? null);
+      } catch (error) {
+        console.error("Error saat memuat user:", error);
+
+        if (mounted) {
+          setEmail(null);
+        }
       }
-    });
+    }
+
+    loadUser();
 
     const {
       data: { subscription },
@@ -158,7 +176,7 @@ export default function Sidebar() {
                   className="dropdown-item"
                   onClick={() => {
                     setMenuOpen(false);
-                    router.push("/wardrobe");
+                    router.push("/account");
                   }}
                 >
                   <UserRound size={17} />
@@ -218,10 +236,6 @@ export default function Sidebar() {
           }}
         >
           <div className="logout-modal" role="dialog" aria-modal="true" aria-labelledby="logout-modal-title">
-            
-
-        
-
             <h2 id="logout-modal-title">Leaving Styleora?</h2>
 
             <p>Are you sure you want to log out of your account? You can always come back anytime.</p>
