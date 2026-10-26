@@ -2343,17 +2343,21 @@ button.avatar:focus-visible {
 /* My Account and Settings */
 
 .account-main {
+  display: block;
+  flex: 1 1 auto;
+  width: calc(100% - 248px);
+  min-width: 0;
   min-height: 100vh;
   margin-left: 248px;
   padding: 36px 43px 50px;
+  box-sizing: border-box;
   color: var(--foreground);
   background: var(--background);
-  min-width: 0;
-  flex: 1;
-  box-sizing: border-box;
 }
 
 .account-page-heading {
+  width: 100%;
+  min-width: 0;
   margin-bottom: 28px;
 }
 
@@ -2363,11 +2367,18 @@ button.avatar:focus-visible {
   font-family: var(--font-playfair), Georgia, serif;
   font-size: 36px;
   font-weight: 500;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 @media (max-width: 768px) {
-  .account-page-heading h1 {
-    font-size: 30px;
+  .account-main {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    padding: 24px 18px 40px;
   }
 }
 
@@ -2673,13 +2684,37 @@ button.avatar:focus-visible {
 
 @media (max-width: 768px) {
   .account-main {
-    margin-left: 220px;
-    padding: 30px 25px 50px;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    padding: 24px 18px 40px;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .account-page-heading {
+    width: 100%;
+    margin-bottom: 24px;
+  }
+
+  .account-page-heading h1 {
+    font-size: 30px;
+    overflow-wrap: anywhere;
   }
 
   .account-profile-hero {
+    width: 100%;
+    min-width: 0;
     flex-wrap: wrap;
+    gap: 14px;
     padding: 18px;
+    box-sizing: border-box;
+  }
+
+  .account-profile-hero > div:nth-child(2) {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .account-verified {
@@ -2688,7 +2723,51 @@ button.avatar:focus-visible {
   }
 
   .account-panel {
+    width: 100%;
+    min-width: 0;
     padding: 18px;
+    box-sizing: border-box;
+  }
+
+  .account-panel-heading {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .account-panel-heading > div:last-child {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .account-field,
+  .account-readonly {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .account-field input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .account-form-actions {
+    justify-content: flex-start;
+  }
+
+  .account-security-row {
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-option {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .settings-option-copy {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .settings-theme-preview {
@@ -2697,9 +2776,11 @@ button.avatar:focus-visible {
 
   .settings-theme-current {
     width: 100%;
+    white-space: normal;
   }
 
   .settings-save-row {
     flex-wrap: wrap;
+    justify-content: flex-start;
   }
 }
