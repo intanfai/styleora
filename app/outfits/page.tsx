@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Sparkles, Shirt, Heart, RefreshCw, ArrowRight, Check, CloudSun, BriefcaseBusiness, Coffee, GraduationCap, PartyPopper, WandSparkles } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
 import WeatherWidget from "@/components/WeatherWidget";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type Clothing = {
   id: string;
@@ -79,6 +81,29 @@ export default function OutfitGeneratorPage() {
   const [message, setMessage] = useState("");
   const [ready, setReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const router = useRouter();
+  const [userName, setUserName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    async function loadUser() {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error) {
+        console.error("Gagal mengambil data user:", error);
+        return;
+      }
+
+      const user = data.user;
+
+      const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.username || user?.email?.split("@")[0] || null;
+
+      setUserName(name);
+    }
+
+    loadUser();
+  }, []);
 
   useEffect(() => {
     try {
@@ -225,7 +250,9 @@ export default function OutfitGeneratorPage() {
 
           <div className="topbar-right">
             <span className="date-label">YOUR PERSONAL STYLE SPACE</span>
-            <div className="avatar">C</div>
+            <button type="button" className="avatar" aria-label="Open profile" onClick={() => router.push("/account")}>
+              {userName?.charAt(0).toUpperCase() || "U"}
+            </button>{" "}
           </div>
         </header>
 

@@ -23,6 +23,15 @@ type Outfit = {
   activity?: string;
 };
 
+type CitySuggestion = {
+  id: number;
+  name: string;
+  admin1?: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+};
+
 type Weather = {
   location: {
     name: string;
@@ -65,6 +74,9 @@ export default function Dashboard() {
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [weatherError, setWeatherError] = useState("");
   const [city, setCity] = useState("Semarang");
+  const [searchText, setSearchText] = useState("Semarang");
+  const [suggestions, setSuggestions] = useState<CitySuggestion[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [todayLabel, setTodayLabel] = useState("");
   const [userName, setUserName] = useState<string | null>(null);
 
@@ -155,6 +167,7 @@ export default function Dashboard() {
 
       setWeather(data as Weather);
       setCity(data.location.name);
+      setSearchText(data.location.name);
     } catch (error) {
       setWeather(null);
       setWeatherError(error instanceof Error ? error.message : "Tidak dapat terhubung ke layanan cuaca.");
@@ -169,6 +182,40 @@ export default function Dashboard() {
     // Hanya mengambil cuaca awal ketika komponen dimuat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Mencari saran kota 300ms setelah user berhenti mengetik.
+  useEffect(() => {
+    const q = searchText.trim();
+
+    if (!suggestOpen || q.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=id&format=json`, { signal: controller.signal });
+        const data = await res.json();
+        setSuggestions(Array.isArray(data.results) ? data.results : []);
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") setSuggestions([]);
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [searchText, suggestOpen]);
+
+  function selectCity(item: CitySuggestion) {
+    setSearchText(item.name);
+    setSuggestOpen(false);
+    setSuggestions([]);
+    void loadWeather(item.name);
+  }
 
   // Menghitung jumlah pakaian berdasarkan kategori.
   const countCategory = (category: string) => wardrobe.filter((item) => item.category === category).length;
@@ -356,42 +403,52 @@ export default function Dashboard() {
                   className="weather-top"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    void loadWeather(city);
+                    setSuggestOpen(false);
+                    void loadWeather(searchText);
                   }}
                 >
                   <span>
-                    <MapPin
-                      size={12}
-                      style={{
-                        display: "inline",
-                        marginRight: 4,
-                      }}
-                    />
+                    <MapPin size={12} style={{ display: "inline", marginRight: 4 }} />
                     LOCAL WEATHER
                   </span>
 
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      alignItems: "center",
-                    }}
-                  >
-                    <input
-                      aria-label="City for weather"
-                      value={city}
-                      onChange={(event) => setCity(event.target.value)}
-                      placeholder="Enter city"
-                      style={{
-                        width: 105,
-                        minWidth: 0,
-                        border: "1px solid #e1e4d8",
-                        borderRadius: 8,
-                        padding: "5px 7px",
-                        background: "#fff",
-                        fontSize: 11,
-                      }}
-                    />
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <div className="city-search">
+                      <input
+                        aria-label="City for weather"
+                        value={searchText}
+                        onChange={(event) => {
+                          setSearchText(event.target.value);
+                          setSuggestOpen(true);
+                        }}
+                        onFocus={() => suggestions.length > 0 && setSuggestOpen(true)}
+                        onBlur={() => setSuggestOpen(false)}
+                        placeholder="Enter city"
+                        autoComplete="off"
+                      />
+
+                      {suggestOpen && suggestions.length > 0 && (
+                        <ul className="city-suggestions" role="listbox">
+                          {suggestions.map((item) => (
+                            <li
+                              key={item.id}
+                              role="option"
+                              aria-selected={false}
+                              onMouseDown={(event) => {
+                                event.preventDefault(); // cegah input kehilangan fokus sebelum klik
+                                selectCity(item);
+                              }}
+                            >
+                              <MapPin size={13} />
+                              <span>
+                                <strong>{item.name}</strong>
+                                <small>{[item.admin1, item.country].filter(Boolean).join(", ")}</small>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
 
                     <button
                       type="submit"

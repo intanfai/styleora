@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Search, Shirt, Upload, X, Trash2, Sparkles, ImagePlus, PackageOpen, SlidersHorizontal, ArrowLeft } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type Clothing = {
   id: string;
@@ -18,6 +20,16 @@ const STORAGE_KEY = "closet-ai-wardrobe";
 const categories = ["All Items", "Tops", "Bottoms", "Outerwear", "Shoes", "Accessories"];
 
 const clothingCategories = categories.filter((category) => category !== "All Items");
+
+const colorOptions = ["Neutral", "Black", "White", "Brown", "Beige", "Grey", "Blue", "Green", "Pink", "Red", "Purple", "Yellow", "Multicolor"];
+
+const styleOptions = ["Casual", "Formal", "Smart Casual", "Streetwear", "Minimalist", "Sporty", "Vintage"];
+
+const sortOptions = [
+  { value: "newest", label: "Recently added" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "name", label: "Name A–Z" },
+];
 
 const initialForm = {
   name: "",
@@ -37,6 +49,46 @@ export default function WardrobePage() {
   const [storageReady, setStorageReady] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const router = useRouter();
+  const [userName, setUserName] = useState<string | null>(null);
+  const [showFilter, setShowFilter] = useState(false);
+  const [filterColor, setFilterColor] = useState("All");
+  const [filterStyle, setFilterStyle] = useState("All");
+  const [sortBy, setSortBy] = useState("newest");
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  // Tutup panel filter saat klik di luar.
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setShowFilter(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    async function loadUser() {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error) {
+        console.error("Gagal mengambil data user:", error);
+        return;
+      }
+
+      const user = data.user;
+
+      const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.username || user?.email?.split("@")[0] || null;
+
+      setUserName(name);
+    }
+
+    loadUser();
+  }, []);
 
   useEffect(() => {
     try {
@@ -62,13 +114,31 @@ export default function WardrobePage() {
     }
   }, [items, storageReady]);
 
-  const visibleItems = items.filter((item) => {
+  const filteredItems = items.filter((item) => {
+    const query = search.toLowerCase();
+
     const matchesCategory = activeCategory === "All Items" || item.category === activeCategory;
+    const matchesSearch = item.name.toLowerCase().includes(query) || item.color.toLowerCase().includes(query) || item.style.toLowerCase().includes(query);
+    const matchesColor = filterColor === "All" || item.color === filterColor;
+    const matchesStyle = filterStyle === "All" || item.style === filterStyle;
 
-    const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase()) || item.color.toLowerCase().includes(search.toLowerCase()) || item.style.toLowerCase().includes(search.toLowerCase());
-
-    return matchesCategory && matchesSearch;
+    return matchesCategory && matchesSearch && matchesColor && matchesStyle;
   });
+
+  // Item baru selalu ditambahkan di depan array, jadi urutan asli = terbaru.
+  const visibleItems = sortBy === "oldest" ? [...filteredItems].reverse() : sortBy === "name" ? [...filteredItems].sort((a, b) => a.name.localeCompare(b.name)) : filteredItems;
+
+  const activeFilterCount = (filterColor !== "All" ? 1 : 0) + (filterStyle !== "All" ? 1 : 0);
+
+  const hasActiveFilters = Boolean(search) || activeCategory !== "All Items" || activeFilterCount > 0;
+
+  function resetFilters() {
+    setSearch("");
+    setActiveCategory("All Items");
+    setFilterColor("All");
+    setFilterStyle("All");
+    setSortBy("newest");
+  }
 
   function openModal() {
     setForm(initialForm);
@@ -194,7 +264,9 @@ export default function WardrobePage() {
 
           <div className="topbar-right">
             <span className="date-label">YOUR PERSONAL STYLE SPACE</span>
-            <div className="avatar">C</div>
+            <button type="button" className="avatar" aria-label="Open profile" onClick={() => router.push("/account")}>
+              {userName?.charAt(0).toUpperCase() || "U"}
+            </button>{" "}
           </div>
         </header>
 
@@ -239,9 +311,69 @@ export default function WardrobePage() {
             )}
           </div>
 
-          <div className="filter-label">
-            <SlidersHorizontal size={16} />
-            <span>Filter</span>
+          <div className="filter-wrapper" ref={filterRef}>
+            <button type="button" className={`filter-button ${showFilter || activeFilterCount > 0 ? "active" : ""}`} onClick={() => setShowFilter((open) => !open)} aria-expanded={showFilter} aria-haspopup="true">
+              <SlidersHorizontal size={16} />
+              <span>Filter</span>
+              {activeFilterCount > 0 && <b className="filter-badge">{activeFilterCount}</b>}
+            </button>
+
+            {showFilter && (
+              <div className="filter-panel">
+                <div className="form-field">
+                  <label htmlFor="filter-color">Color</label>
+                  <select id="filter-color" value={filterColor} onChange={(event) => setFilterColor(event.target.value)}>
+                    <option value="All">All colors</option>
+                    {colorOptions.map((color) => (
+                      <option key={color} value={color}>
+                        {color}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-field">
+                  <label htmlFor="filter-style">Style</label>
+                  <select id="filter-style" value={filterStyle} onChange={(event) => setFilterStyle(event.target.value)}>
+                    <option value="All">All styles</option>
+                    {styleOptions.map((style) => (
+                      <option key={style} value={style}>
+                        {style}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-field">
+                  <label htmlFor="filter-sort">Sort by</label>
+                  <select id="filter-sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                    {sortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="filter-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      setFilterColor("All");
+                      setFilterStyle("All");
+                      setSortBy("newest");
+                    }}
+                  >
+                    Reset
+                  </button>
+
+                  <button type="button" className="primary-button" onClick={() => setShowFilter(false)}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -262,7 +394,7 @@ export default function WardrobePage() {
           <span>
             Showing <strong>{visibleItems.length}</strong> pieces
           </span>
-          <span>Recently added</span>
+          <span>{sortOptions.find((option) => option.value === sortBy)?.label}</span>
         </div>
 
         {visibleItems.length > 0 ? (
@@ -301,13 +433,7 @@ export default function WardrobePage() {
             <p>{search || activeCategory !== "All Items" ? "Try another search or choose a different category." : "Add your first clothing item and start building your digital wardrobe."}</p>
 
             {search || activeCategory !== "All Items" ? (
-              <button
-                className="primary-button"
-                onClick={() => {
-                  setSearch("");
-                  setActiveCategory("All Items");
-                }}
-              >
+              <button className="primary-button" onClick={resetFilters}>
                 Clear filters
               </button>
             ) : (

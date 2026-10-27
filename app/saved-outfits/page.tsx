@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Heart, Sparkles, Trash2, Shirt, ArrowRight, Bookmark, Search } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type Clothing = {
   id: string;
@@ -31,6 +33,29 @@ export default function SavedOutfitsPage() {
   const [search, setSearch] = useState("");
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
+  const router = useRouter();
+const [userName, setUserName] = useState<string | null>(null);
+
+useEffect(() => {
+  const supabase = createClient();
+
+  async function loadUser() {
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error) {
+      console.error("Gagal mengambil data user:", error);
+      return;
+    }
+
+    const user = data.user;
+
+    const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.username || user?.email?.split("@")[0] || null;
+
+    setUserName(name);
+  }
+
+  loadUser();
+}, []);
 
   useEffect(() => {
     try {
@@ -77,7 +102,9 @@ export default function SavedOutfitsPage() {
 
           <div className="topbar-right">
             <span className="date-label">YOUR PERSONAL STYLE SPACE</span>
-            <div className="avatar">S</div>
+            <button type="button" className="avatar" aria-label="Open profile" onClick={() => router.push("/account")}>
+              {userName?.charAt(0).toUpperCase() || "U"}
+            </button>{" "}
           </div>
         </header>
 
