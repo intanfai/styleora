@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Sparkles, Shirt, Heart, RefreshCw, ArrowRight, Check, CloudSun, BriefcaseBusiness, Coffee, GraduationCap, PartyPopper, WandSparkles } from "lucide-react";
+import { Sparkles, Shirt, Heart, RefreshCw, ArrowRight, ArrowUpRight, Check, CloudSun, CloudRain, Sun, MapPin, Droplets, BriefcaseBusiness, Coffee, GraduationCap, PartyPopper, WandSparkles } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
-import WeatherWidget from "@/components/WeatherWidget";
+import { useWeather } from "../context/WeatherContext";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -15,27 +15,6 @@ type Clothing = {
   color: string;
   style: string;
   image: string;
-};
-
-type WeatherData = {
-  location: {
-    name: string;
-    region: string;
-    country: string;
-  };
-  current: {
-    temperature: number;
-    feelsLike: number;
-    humidity: number;
-    precipitation: number;
-    rain: number;
-    windSpeed: number;
-    weatherCode: number;
-    description: string;
-    isDay: boolean;
-    rainProbability: number | null;
-  };
-  source: string;
 };
 
 type Outfit = {
@@ -60,6 +39,12 @@ const activities = [
   { label: "Special Event", icon: PartyPopper },
 ];
 
+function weatherIcon(code: number) {
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99].includes(code)) return CloudRain;
+  if (code === 0) return Sun;
+  return CloudSun;
+}
+
 function getOutfitName(style: string, activity: string) {
   const names: Record<string, string> = {
     College: "Campus Day Edit",
@@ -77,7 +62,8 @@ export default function OutfitGeneratorPage() {
   const [selectedStyle, setSelectedStyle] = useState("Casual");
   const [selectedActivity, setSelectedActivity] = useState("College");
   const [currentOutfit, setCurrentOutfit] = useState<Outfit | null>(null);
-  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const { weather } = useWeather();
+  const WeatherIcon = weather ? weatherIcon(weather.current.weatherCode) : CloudSun;
   const [message, setMessage] = useState("");
   const [ready, setReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -133,10 +119,6 @@ export default function OutfitGeneratorPage() {
       setMessage("Penyimpanan penuh. Coba hapus beberapa foto pakaian dari wardrobe.");
     }
   }, [savedOutfits, ready]);
-
-  const handleWeatherChange = useCallback((newWeather: WeatherData | null) => {
-    setWeather(newWeather);
-  }, []);
 
   async function handleGenerate() {
     if (isGenerating) return;
@@ -264,9 +246,52 @@ export default function OutfitGeneratorPage() {
           </div>
         </section>
 
-        {/* Weather widget */}
+        {/* Weather (sinkron dengan dashboard) */}
         <section className="mb-6">
-          <WeatherWidget onWeatherChange={handleWeatherChange} />
+          <div className="outfit-weather">
+            <div className="outfit-weather-icon">
+              <WeatherIcon size={26} strokeWidth={1.4} />
+            </div>
+
+            {weather ? (
+              <>
+                <div className="outfit-weather-main">
+                  <span className="outfit-weather-label">
+                    <MapPin size={11} />
+                    {weather.location.name}
+                  </span>
+                  <div className="outfit-weather-temp">
+                    <strong>{Math.round(weather.current.temperature)}°C</strong>
+                    <span>{weather.current.description}</span>
+                  </div>
+                </div>
+
+                <div className="outfit-weather-chips">
+                  <span>
+                    <Droplets size={12} />
+                    Humidity {weather.current.humidity}%
+                  </span>
+                  {weather.current.rainProbability !== null && (
+                    <span>
+                      <CloudRain size={12} />
+                      Rain {weather.current.rainProbability}%
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="outfit-weather-main">
+                <span className="outfit-weather-label">Weather</span>
+                <div className="outfit-weather-temp">
+                  <span>Loading weather…</span>
+                </div>
+              </div>
+            )}
+
+            <Link href="/" className="outfit-weather-link">
+              Change city <ArrowUpRight size={13} />
+            </Link>
+          </div>
         </section>
 
         <section className="generator-layout">

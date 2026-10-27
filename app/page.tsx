@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Shirt, Sparkles, Heart, Plus, ArrowUpRight, CloudSun, Sun, CloudRain, MapPin, LoaderCircle, RefreshCw, Palette, Droplets } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import { createClient } from "@/lib/supabase/client";
+import { useWeather } from "./context/WeatherContext";
 
 type Clothing = {
   id: string;
@@ -32,25 +33,6 @@ type CitySuggestion = {
   longitude: number;
 };
 
-type Weather = {
-  location: {
-    name: string;
-    region: string;
-    country: string;
-  };
-  current: {
-    temperature: number;
-    feelsLike: number;
-    humidity: number;
-    windSpeed: number;
-    weatherCode: number;
-    description: string;
-    rainProbability: number | null;
-    isDay: boolean;
-  };
-  source: string;
-};
-
 const WARDROBE_KEY = "closet-ai-wardrobe";
 const SAVED_KEY = "closet-ai-saved-outfits";
 
@@ -70,15 +52,16 @@ export default function Dashboard() {
   const [wardrobe, setWardrobe] = useState<Clothing[]>([]);
   const [savedOutfits, setSavedOutfits] = useState<Outfit[]>([]);
   const [ready, setReady] = useState(false);
-  const [weather, setWeather] = useState<Weather | null>(null);
-  const [weatherLoading, setWeatherLoading] = useState(true);
-  const [weatherError, setWeatherError] = useState("");
-  const [city, setCity] = useState("Semarang");
-  const [searchText, setSearchText] = useState("Semarang");
+  const { weather, loading: weatherLoading, error: weatherError, city, changeCity } = useWeather();
+  const [searchText, setSearchText] = useState(city);
   const [suggestions, setSuggestions] = useState<CitySuggestion[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [todayLabel, setTodayLabel] = useState("");
   const [userName, setUserName] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSearchText(city);
+  }, [city]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -140,49 +123,6 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Mengambil data cuaca dari endpoint API.
-  async function loadWeather(cityName = city) {
-    const requestedCity = cityName.trim();
-
-    if (!requestedCity) {
-      setWeatherError("Masukkan nama kota terlebih dahulu.");
-      return;
-    }
-
-    setWeatherLoading(true);
-    setWeatherError("");
-
-    try {
-      const response = await fetch(`/api/weather?city=${encodeURIComponent(requestedCity)}`, { cache: "no-store" });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Data cuaca gagal dimuat.");
-      }
-
-      if (!data.location || !data.current) {
-        throw new Error("Format data cuaca tidak sesuai.");
-      }
-
-      setWeather(data as Weather);
-      setCity(data.location.name);
-      setSearchText(data.location.name);
-    } catch (error) {
-      setWeather(null);
-      setWeatherError(error instanceof Error ? error.message : "Tidak dapat terhubung ke layanan cuaca.");
-    } finally {
-      setWeatherLoading(false);
-    }
-  }
-
-  // Mengambil cuaca setelah dashboard dimuat di browser.
-  useEffect(() => {
-    void loadWeather("Semarang");
-    // Hanya mengambil cuaca awal ketika komponen dimuat.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Mencari saran kota 300ms setelah user berhenti mengetik.
   useEffect(() => {
     const q = searchText.trim();
@@ -214,7 +154,7 @@ export default function Dashboard() {
     setSearchText(item.name);
     setSuggestOpen(false);
     setSuggestions([]);
-    void loadWeather(item.name);
+    void changeCity(item.name); // sebelumnya loadWeather
   }
 
   // Menghitung jumlah pakaian berdasarkan kategori.
@@ -404,7 +344,7 @@ export default function Dashboard() {
                   onSubmit={(event) => {
                     event.preventDefault();
                     setSuggestOpen(false);
-                    void loadWeather(searchText);
+                    void changeCity(searchText);
                   }}
                 >
                   <span>

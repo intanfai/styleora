@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
+import { WeatherProvider } from "./context/WeatherContext";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -26,7 +27,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning className={`${playfair.variable} ${dmSans.variable}`}>
-      <body className="min-h-screen flex flex-col font-sans">{children}</body>
+      <body className="min-h-screen flex flex-col font-sans">
+        <WeatherProvider>{children}</WeatherProvider>
+      </body>
     </html>
   );
 }

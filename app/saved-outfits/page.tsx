@@ -116,16 +116,7 @@ useEffect(() => {
           </div>
         </section>
 
-        <section className="saved-intro">
-          <div className="saved-intro-icon">
-            <Heart size={23} />
-          </div>
-          <div>
-            <strong>{outfits.length} saved looks</strong>
-            <p>A little collection of outfits made from your own wardrobe.</p>
-          </div>
-          <Sparkles className="saved-intro-sparkle" size={22} />
-        </section>
+
 
         <div className="saved-toolbar">
           <label className="saved-search">
