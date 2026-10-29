@@ -28,27 +28,28 @@ type WeatherContextValue = {
   weather: WeatherData | null;
   loading: boolean;
   error: string;
+  initialized: boolean;
   changeCity: (name: string) => Promise<void>;
+  changeCoords: (lat: number, lon: number, label?: string) => Promise<void>;
 };
 
 const CITY_KEY = "closet-ai-city";
 const WeatherContext = createContext<WeatherContextValue | null>(null);
 
 export function WeatherProvider({ children }: { children: React.ReactNode }) {
-  const [city, setCity] = useState("Semarang");
+  const [city, setCity] = useState("");
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [initialized, setInitialized] = useState(false);
 
-  const changeCity = useCallback(async (name: string) => {
-    const requested = name.trim();
-    if (!requested) return;
-
+  // Fungsi inti: fetch cuaca dari URL API, lalu simpan hasilnya.
+  const load = useCallback(async (url: string) => {
     setLoading(true);
     setError("");
 
     try {
-      const res = await fetch(`/api/weather?city=${encodeURIComponent(requested)}`, { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || "Data cuaca gagal dimuat.");
@@ -67,16 +68,64 @@ export function WeatherProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Pertama kali dimuat: pakai kota tersimpan, kalau tidak ada pakai Semarang
+  // Cari cuaca berdasarkan nama kota.
+  const changeCity = useCallback(
+    async (name: string) => {
+      const requested = name.trim();
+      if (!requested) return;
+
+      await load(`/api/weather?city=${encodeURIComponent(requested)}`);
+    },
+    [load],
+  );
+
+  // Cari cuaca berdasarkan koordinat (dari GPS). `label` hanya untuk nama tampilan.
+  const changeCoords = useCallback(
+    async (lat: number, lon: number, label?: string) => {
+      const params = new URLSearchParams({
+        lat: String(lat),
+        lon: String(lon),
+      });
+
+      if (label) params.set("name", label);
+
+      await load(`/api/weather?${params.toString()}`);
+    },
+    [load],
+  );
+
+  // Pertama kali dimuat: pakai kota tersimpan saja.
+  // Kalau belum ada, biarkan kosong supaya dashboard menampilkan "Where are you today?".
   useEffect(() => {
     let saved: string | null = null;
+
     try {
       saved = localStorage.getItem(CITY_KEY);
     } catch {}
-    void changeCity(saved || "Semarang");
+
+    if (saved) {
+      void changeCity(saved).finally(() => setInitialized(true));
+    } else {
+      setLoading(false);
+      setInitialized(true);
+    }
   }, [changeCity]);
 
-  return <WeatherContext.Provider value={{ city, weather, loading, error, changeCity }}>{children}</WeatherContext.Provider>;
+  return (
+    <WeatherContext.Provider
+      value={{
+        city,
+        weather,
+        loading,
+        error,
+        initialized,
+        changeCity,
+        changeCoords,
+      }}
+    >
+      {children}
+    </WeatherContext.Provider>
+  );
 }
 
 export function useWeather() {

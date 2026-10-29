@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Shirt, Sparkles, Heart, Plus, ArrowUpRight, CloudSun, Sun, CloudRain, MapPin, LoaderCircle, RefreshCw, Palette, Droplets } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import { createClient } from "@/lib/supabase/client";
@@ -58,10 +58,28 @@ export default function Dashboard() {
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [todayLabel, setTodayLabel] = useState("");
   const [userName, setUserName] = useState<string | null>(null);
+  const [greeting, setGreeting] = useState("Hello");
+  const [locating, setLocating] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const hour = new Date().getHours();
+    setGreeting(hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening");
+  }, []);
 
   useEffect(() => {
     setSearchText(city);
   }, [city]);
+
+  useEffect(() => {
+    if (city) return;
+    navigator.permissions
+      ?.query({ name: "geolocation" })
+      .then((status) => {
+        if (status.state === "granted") detectLocation();
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const supabase = createClient();
@@ -136,7 +154,7 @@ export default function Dashboard() {
 
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=id&format=json`, { signal: controller.signal });
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en&format=json`, { signal: controller.signal });
         const data = await res.json();
         setSuggestions(Array.isArray(data.results) ? data.results : []);
       } catch (err) {
@@ -150,6 +168,42 @@ export default function Dashboard() {
     };
   }, [searchText, suggestOpen]);
 
+  function detectLocation() {
+    if (!("geolocation" in navigator)) {
+      setGeoError("Your browser doesn't support location.");
+      return;
+    }
+
+    setLocating(true);
+    setGeoError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=en`);
+          const data = await res.json();
+          const name = data.city || data.locality || data.principalSubdivision;
+
+          if (name) {
+            setSearchText(name);
+            await changeCity(name);
+          } else {
+            setGeoError("Couldn't determine your city. Try searching manually.");
+          }
+        } catch {
+          setGeoError("Couldn't determine your city. Try searching manually.");
+        } finally {
+          setLocating(false);
+        }
+      },
+      (err) => {
+        setLocating(false);
+        setGeoError(err.code === err.PERMISSION_DENIED ? "Location permission denied. Search a city manually." : "Couldn't get your location.");
+      },
+      { timeout: 10000, maximumAge: 600000 },
+    );
+  }
+
   function selectCity(item: CitySuggestion) {
     setSearchText(item.name);
     setSuggestOpen(false);
@@ -158,13 +212,19 @@ export default function Dashboard() {
   }
 
   // Menghitung jumlah pakaian berdasarkan kategori.
-  const countCategory = (category: string) => wardrobe.filter((item) => item.category === category).length;
+  const counts = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const item of wardrobe) {
+      result[item.category] = (result[item.category] ?? 0) + 1;
+    }
+    return result;
+  }, [wardrobe]);
 
-  const tops = countCategory("Tops");
-  const bottoms = countCategory("Bottoms");
-  const outerwear = countCategory("Outerwear");
-  const shoes = countCategory("Shoes");
-  const accessories = countCategory("Accessories");
+  const tops = counts["Tops"] ?? 0;
+  const bottoms = counts["Bottoms"] ?? 0;
+  const outerwear = counts["Outerwear"] ?? 0;
+  const shoes = counts["Shoes"] ?? 0;
+  const accessories = counts["Accessories"] ?? 0;
 
   // Estimasi kombinasi dari pakaian yang tersedia.
   const combinations = tops > 0 && bottoms > 0 ? tops * bottoms * (outerwear + 1) * (shoes + 1) : 0;
@@ -215,16 +275,9 @@ export default function Dashboard() {
           <div className="topbar-right">
             <span className="date-label">YOUR PERSONAL STYLE SPACE</span>
 
-            <button
-              type="button"
-              className="circle-button"
-              aria-label="Saved outfits"
-              onClick={() => {
-                window.location.href = "/saved-outfits";
-              }}
-            >
+            <Link href="/saved-outfits" className="circle-button" aria-label="Saved outfits">
               <Heart size={17} />
-            </button>
+            </Link>
 
             <button
               type="button"
@@ -243,7 +296,9 @@ export default function Dashboard() {
           <div>
             <div className="eyebrow">{todayLabel ? `${todayLabel}, YOUR STYLE JOURNAL` : "YOUR STYLE JOURNAL"}</div>
 
-            <h1>Good morning, style lover.</h1>
+            <h1>
+              {greeting}, {userName ?? "style lover"}.
+            </h1>
 
             <p>A little inspiration goes a long way. Let&apos;s find something lovely to wear today.</p>
           </div>
@@ -344,6 +399,7 @@ export default function Dashboard() {
                   onSubmit={(event) => {
                     event.preventDefault();
                     setSuggestOpen(false);
+                    if (!searchText.trim()) return;
                     void changeCity(searchText);
                   }}
                 >
@@ -374,8 +430,8 @@ export default function Dashboard() {
                               key={item.id}
                               role="option"
                               aria-selected={false}
-                              onMouseDown={(event) => {
-                                event.preventDefault(); // cegah input kehilangan fokus sebelum klik
+                              onPointerDown={(event) => {
+                                event.preventDefault();
                                 selectCity(item);
                               }}
                             >
@@ -439,6 +495,22 @@ export default function Dashboard() {
                       {weather.current.rainProbability !== null ? ` · Rain chance ${weather.current.rainProbability}%` : ""}
                     </div>
                   </>
+                ) : !city ? (
+                  <div className="weather-main">
+                    <MapPin size={38} color="#78866f" strokeWidth={1.3} />
+                    <div>
+                      <strong style={{ fontSize: 15 }}>Where are you today?</strong>
+                      <p>Search a city above or use your location.</p>
+                      <button type="button" className="primary-button" onClick={detectLocation} disabled={locating}>
+                        {locating ? "Locating…" : "Use my location"}
+                      </button>
+                      {geoError && (
+                        <p role="status" style={{ fontSize: 11, color: "#985C4E" }}>
+                          {geoError}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div className="weather-main">
                     <CloudSun size={38} color="#78866f" strokeWidth={1.3} />
