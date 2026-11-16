@@ -1,21 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Sparkles, Shirt, Heart, RefreshCw, ArrowRight, ArrowUpRight, Check, CloudSun, CloudRain, Sun, MapPin, Droplets, BriefcaseBusiness, Coffee, GraduationCap, PartyPopper, WandSparkles } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
 import { useWeather } from "../context/WeatherContext";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-
-type Clothing = {
-  id: string;
-  name: string;
-  category: string;
-  color: string;
-  style: string;
-  image: string;
-};
+import { fetchWardrobe, type Clothing } from "@/lib/wardrobe";
 
 type Outfit = {
   id: string;
@@ -27,8 +19,13 @@ type Outfit = {
   reason?: string;
 };
 
-const WARDROBE_KEY = "closet-ai-wardrobe";
-const SAVED_KEY = "closet-ai-saved-outfits";
+// Outfit yang sudah tersimpan di database (hanya menyimpan id pakaian).
+type SavedRef = {
+  id: string;
+  style: string;
+  activity: string;
+  itemIds: string[];
+};
 
 const styles = ["Casual", "Formal", "Smart Casual", "Streetwear", "Minimalist", "Sporty", "Vintage"];
 
@@ -56,9 +53,22 @@ function getOutfitName(style: string, activity: string) {
   return `${names[activity] ?? "Everyday Edit"} · ${style}`;
 }
 
+// Baca kolom jsonb `items` -> daftar id pakaian.
+function parseItemIds(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((entry) => (entry && typeof entry === "object" ? (entry as { id?: unknown }).id : null)).filter((id): id is string => typeof id === "string");
+}
+
+function sameOutfit(saved: SavedRef, outfit: Outfit) {
+  return saved.style === outfit.style && saved.activity === outfit.activity && saved.itemIds.length === outfit.items.length && saved.itemIds.every((id) => outfit.items.some((item) => item.id === id));
+}
+
 export default function OutfitGeneratorPage() {
+  const supabase = useMemo(() => createClient(), []);
+
   const [wardrobe, setWardrobe] = useState<Clothing[]>([]);
-  const [savedOutfits, setSavedOutfits] = useState<Outfit[]>([]);
+  const [savedOutfits, setSavedOutfits] = useState<SavedRef[]>([]);
   const [selectedStyle, setSelectedStyle] = useState("Casual");
   const [selectedActivity, setSelectedActivity] = useState("College");
   const [currentOutfit, setCurrentOutfit] = useState<Outfit | null>(null);
@@ -67,12 +77,11 @@ export default function OutfitGeneratorPage() {
   const [message, setMessage] = useState("");
   const [ready, setReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const router = useRouter();
   const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function loadUser() {
       const { data, error } = await supabase.auth.getUser();
 
@@ -89,36 +98,36 @@ export default function OutfitGeneratorPage() {
     }
 
     loadUser();
-  }, []);
+  }, [supabase]);
 
+  // Ambil wardrobe dan saved outfits dari Supabase.
   useEffect(() => {
-    try {
-      const wardrobeData = localStorage.getItem(WARDROBE_KEY);
-      const savedData = localStorage.getItem(SAVED_KEY);
+    async function loadData() {
+      try {
+        const [wardrobeItems, savedResult] = await Promise.all([fetchWardrobe(supabase), supabase.from("saved_outfits").select("id, style, activity, items")]);
 
-      if (wardrobeData) {
-        setWardrobe(JSON.parse(wardrobeData) as Clothing[]);
+        setWardrobe(wardrobeItems);
+
+        if (savedResult.error) throw savedResult.error;
+
+        setSavedOutfits(
+          (savedResult.data ?? []).map((row) => ({
+            id: row.id,
+            style: row.style,
+            activity: row.activity,
+            itemIds: parseItemIds(row.items),
+          })),
+        );
+      } catch (error) {
+        console.error(error);
+        setMessage("Could not load your wardrobe data. Coba refresh halaman.");
+      } finally {
+        setReady(true);
       }
-
-      if (savedData) {
-        setSavedOutfits(JSON.parse(savedData) as Outfit[]);
-      }
-    } catch {
-      setMessage("Could not load your saved wardrobe data.");
-    } finally {
-      setReady(true);
     }
-  }, []);
 
-  useEffect(() => {
-    if (!ready) return;
-
-    try {
-      localStorage.setItem(SAVED_KEY, JSON.stringify(savedOutfits));
-    } catch {
-      setMessage("Penyimpanan penuh. Coba hapus beberapa foto pakaian dari wardrobe.");
-    }
-  }, [savedOutfits, ready]);
+    loadData();
+  }, [supabase]);
 
   async function handleGenerate() {
     if (isGenerating) return;
@@ -193,32 +202,55 @@ export default function OutfitGeneratorPage() {
     }
   }
 
-  function handleSave() {
-    if (!currentOutfit) return;
+  async function handleSave() {
+    if (!currentOutfit || isSaving) return;
 
-    const alreadySaved = savedOutfits.some(
-      (outfit) =>
-        outfit.items.length === currentOutfit.items.length && outfit.items.every((item) => currentOutfit.items.some((current) => current.id === item.id)) && outfit.style === currentOutfit.style && outfit.activity === currentOutfit.activity,
-    );
+    const alreadySaved = savedOutfits.some((saved) => sameOutfit(saved, currentOutfit));
 
     if (alreadySaved) {
       setMessage("Outfit ini sudah ada di Saved Outfits.");
       return;
     }
 
-    setSavedOutfits((current) => [currentOutfit, ...current]);
-    setMessage("Outfit berhasil disimpan ke Saved Outfits.");
+    setIsSaving(true);
+    setMessage("");
+
+    try {
+      // Hanya simpan id pakaian, bukan foto (foto diambil ulang saat ditampilkan).
+      const { data, error } = await supabase
+        .from("saved_outfits")
+        .insert({
+          name: currentOutfit.name,
+          style: currentOutfit.style,
+          activity: currentOutfit.activity,
+          items: currentOutfit.items.map((item) => ({ id: item.id })),
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      setSavedOutfits((current) => [
+        {
+          id: data.id,
+          style: currentOutfit.style,
+          activity: currentOutfit.activity,
+          itemIds: currentOutfit.items.map((item) => item.id),
+        },
+        ...current,
+      ]);
+
+      setMessage("Outfit berhasil disimpan ke Saved Outfits.");
+    } catch (error) {
+      console.error(error);
+      const detail = (error as { message?: string })?.message;
+      setMessage(detail ? `Gagal menyimpan outfit: ${detail}` : "Gagal menyimpan outfit. Coba lagi.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  const currentIsSaved = currentOutfit
-    ? savedOutfits.some(
-        (outfit) =>
-          outfit.items.length === currentOutfit.items.length &&
-          outfit.items.every((item) => currentOutfit.items.some((current) => current.id === item.id)) &&
-          outfit.style === currentOutfit.style &&
-          outfit.activity === currentOutfit.activity,
-      )
-    : false;
+  const currentIsSaved = currentOutfit ? savedOutfits.some((saved) => sameOutfit(saved, currentOutfit)) : false;
 
   return (
     <>
@@ -348,7 +380,7 @@ export default function OutfitGeneratorPage() {
               </Link>
             </div>
 
-            <button type="button" className="primary-button generate-button" onClick={handleGenerate} disabled={isGenerating}>
+            <button type="button" className="primary-button generate-button" onClick={handleGenerate} disabled={isGenerating || !ready}>
               {isGenerating ? <RefreshCw size={17} className="animate-spin" /> : <Sparkles size={17} />}
 
               {isGenerating ? "Creating your outfit..." : "Generate my outfit"}
@@ -396,7 +428,7 @@ export default function OutfitGeneratorPage() {
                     </p>
                   </div>
 
-                  <button type="button" className={`circle-button ${currentIsSaved ? "favorite-active" : ""}`} onClick={handleSave} aria-label="Save outfit" title="Save outfit">
+                  <button type="button" className={`circle-button ${currentIsSaved ? "favorite-active" : ""}`} onClick={handleSave} disabled={isSaving} aria-label="Save outfit" title="Save outfit">
                     <Heart size={18} fill={currentIsSaved ? "currentColor" : "none"} />
                   </button>
                 </div>
@@ -448,9 +480,9 @@ export default function OutfitGeneratorPage() {
                     {isGenerating ? "Creating another outfit..." : "Try another combination"}
                   </button>
 
-                  <button type="button" className="secondary-button" onClick={handleSave} disabled={currentIsSaved}>
+                  <button type="button" className="secondary-button" onClick={handleSave} disabled={currentIsSaved || isSaving}>
                     <Heart size={16} />
-                    {currentIsSaved ? "Saved" : "Save outfit"}
+                    {currentIsSaved ? "Saved" : isSaving ? "Saving..." : "Save outfit"}
                   </button>
                 </div>
               </div>

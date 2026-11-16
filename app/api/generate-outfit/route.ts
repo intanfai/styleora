@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { NextResponse } from "next/server";
 
 const allowedCategories = ["Tops", "Bottoms", "Outerwear", "Shoes", "Accessories"];
@@ -23,7 +23,7 @@ type GeneratedOutfit = {
 
 // Mencoba ulang jika Gemini sedang sibuk atau terkena rate limit.
 async function generateWithRetry(ai: GoogleGenAI, prompt: string) {
-  const delays = [1000, 2500, 5000];
+  const delays = [800, 1500];
 
   for (let attempt = 0; ; attempt++) {
     try {
@@ -32,6 +32,7 @@ async function generateWithRetry(ai: GoogleGenAI, prompt: string) {
         contents: prompt,
         config: {
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         },
       });
     } catch (error) {
@@ -52,6 +53,8 @@ async function generateWithRetry(ai: GoogleGenAI, prompt: string) {
 
 export async function POST(request: Request) {
   try {
+    const startedAt = Date.now();
+    console.log("generate-outfit dipanggil");
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -138,7 +141,7 @@ Requirements:
 - Consider color harmony, style compatibility, and the occasion.
 - Do not select the same item more than once.
 - Keep the outfit practical and cohesive.
-- Explain briefly in English why the pieces work together.
+- Explain in English in at most 2 short sentences why the pieces work together.
 - Return ONLY valid JSON in this format:
 {
   "itemIds": ["exact-id-1", "exact-id-2"],
@@ -182,6 +185,8 @@ Requirements:
     if (topsCount !== 1 || bottomsCount !== 1) {
       throw new Error("Outfit dari Gemini harus memiliki tepat satu atasan dan satu bawahan.");
     }
+
+    console.log(`Generate outfit selesai dalam ${Date.now() - startedAt} ms`);
 
     return NextResponse.json({
       itemIds: selectedIds,

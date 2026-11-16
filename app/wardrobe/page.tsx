@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Shirt, Upload, X, Trash2, Sparkles, ImagePlus, PackageOpen, SlidersHorizontal, ArrowLeft } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
 import { useRouter } from "next/navigation";
@@ -12,10 +12,9 @@ type Clothing = {
   category: string;
   color: string;
   style: string;
-  image: string;
+  image: string; // URL untuk ditampilkan (signed URL / preview)
+  image_path: string; // path file di Supabase Storage
 };
-
-const STORAGE_KEY = "closet-ai-wardrobe";
 
 const categories = ["All Items", "Tops", "Bottoms", "Outerwear", "Shoes", "Accessories"];
 
@@ -39,6 +38,8 @@ const initialForm = {
 };
 
 export default function WardrobePage() {
+  const supabase = useMemo(() => createClient(), []);
+
   const [items, setItems] = useState<Clothing[]>([]);
   const [activeCategory, setActiveCategory] = useState("All Items");
   const [search, setSearch] = useState("");
@@ -46,7 +47,9 @@ export default function WardrobePage() {
   const [image, setImage] = useState("");
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [storageReady, setStorageReady] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const router = useRouter();
@@ -69,9 +72,8 @@ export default function WardrobePage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Ambil info user dari Supabase Auth.
   useEffect(() => {
-    const supabase = createClient();
-
     async function loadUser() {
       const { data, error } = await supabase.auth.getUser();
 
@@ -88,31 +90,52 @@ export default function WardrobePage() {
     }
 
     loadUser();
-  }, []);
+  }, [supabase]);
 
+  // Ambil data wardrobe dari database Supabase.
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+    async function loadItems() {
+      const { data, error } = await supabase.from("wardrobe_items").select("*").order("created_at", { ascending: false });
 
-      if (saved) {
-        setItems(JSON.parse(saved) as Clothing[]);
+      if (error) {
+        console.error("Gagal memuat wardrobe:", error);
+        setLoadError("Gagal memuat wardrobe. Coba refresh halaman.");
+        setStorageReady(true);
+        return;
       }
-    } catch {
-      console.error("Could not load wardrobe data.");
-    } finally {
+
+      const rows = data ?? [];
+      const paths = rows.map((row) => row.image_path).filter(Boolean) as string[];
+      const urlMap: Record<string, string> = {};
+
+      if (paths.length > 0) {
+        const { data: signed } = await supabase.storage.from("wardrobe").createSignedUrls(paths, 3600);
+
+        signed?.forEach((entry) => {
+          if (entry.path && entry.signedUrl) {
+            urlMap[entry.path] = entry.signedUrl;
+          }
+        });
+      }
+
+      setItems(
+        rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          category: row.category,
+          color: row.color,
+          style: row.style ?? "",
+          image_path: row.image_path ?? "",
+          image: urlMap[row.image_path] ?? "",
+        })),
+      );
+
+      setLoadError("");
       setStorageReady(true);
     }
-  }, []);
 
-  useEffect(() => {
-    if (!storageReady) return;
-
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {
-      setError("Penyimpanan penuh. Hapus beberapa foto atau gunakan gambar yang lebih kecil.");
-    }
-  }, [items, storageReady]);
+    loadItems();
+  }, [supabase]);
 
   const filteredItems = items.filter((item) => {
     const query = search.toLowerCase();
@@ -125,12 +148,10 @@ export default function WardrobePage() {
     return matchesCategory && matchesSearch && matchesColor && matchesStyle;
   });
 
-  // Item baru selalu ditambahkan di depan array, jadi urutan asli = terbaru.
+  // Data dari database sudah urut terbaru (created_at desc), item baru ditambahkan di depan.
   const visibleItems = sortBy === "oldest" ? [...filteredItems].reverse() : sortBy === "name" ? [...filteredItems].sort((a, b) => a.name.localeCompare(b.name)) : filteredItems;
 
   const activeFilterCount = (filterColor !== "All" ? 1 : 0) + (filterStyle !== "All" ? 1 : 0);
-
-  const hasActiveFilters = Boolean(search) || activeCategory !== "All Items" || activeFilterCount > 0;
 
   function resetFilters() {
     setSearch("");
@@ -217,7 +238,7 @@ export default function WardrobePage() {
     }
   }
 
-  function addClothing(event: React.FormEvent<HTMLFormElement>) {
+  async function addClothing(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
 
@@ -231,25 +252,81 @@ export default function WardrobePage() {
       return;
     }
 
-    const newItem: Clothing = {
-      id: crypto.randomUUID(),
-      name: form.name.trim(),
-      category: form.category,
-      color: form.color,
-      style: form.style,
-      image,
-    };
+    setIsSaving(true);
 
-    setItems((current) => [newItem, ...current]);
-    closeModal();
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !userData.user) {
+        throw new Error("Kamu harus login dulu.");
+      }
+
+      // Base64 -> Blob, baru di-upload ke Storage.
+      const blob = await (await fetch(image)).blob();
+      const path = `${userData.user.id}/${crypto.randomUUID()}.jpg`;
+
+      const { error: uploadError } = await supabase.storage.from("wardrobe").upload(path, blob, { contentType: "image/jpeg" });
+
+      if (uploadError) throw uploadError;
+
+      const { data: row, error: insertError } = await supabase
+        .from("wardrobe_items")
+        .insert({
+          name: form.name.trim(),
+          category: form.category,
+          color: form.color,
+          style: form.style,
+          image_path: path,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        // Rollback: hapus foto yang sudah ter-upload.
+        await supabase.storage.from("wardrobe").remove([path]);
+        throw insertError;
+      }
+
+      setItems((current) => [
+        {
+          id: row.id,
+          name: row.name,
+          category: row.category,
+          color: row.color,
+          style: row.style ?? "",
+          image_path: path,
+          image, // pakai preview yang sudah ada
+        },
+        ...current,
+      ]);
+
+      closeModal();
+    } catch (e) {
+      const message = (e as { message?: string })?.message;
+      setError(message || "Gagal menyimpan pakaian. Coba lagi.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function deleteClothing(id: string) {
+  async function deleteClothing(item: Clothing) {
     const confirmed = window.confirm("Hapus pakaian ini dari koleksi kamu?");
 
     if (!confirmed) return;
 
-    setItems((current) => current.filter((item) => item.id !== id));
+    const { error } = await supabase.from("wardrobe_items").delete().eq("id", item.id);
+
+    if (error) {
+      console.error(error);
+      window.alert("Gagal menghapus pakaian. Coba lagi.");
+      return;
+    }
+
+    if (item.image_path) {
+      await supabase.storage.from("wardrobe").remove([item.image_path]);
+    }
+
+    setItems((current) => current.filter((i) => i.id !== item.id));
   }
 
   return (
@@ -390,6 +467,8 @@ export default function WardrobePage() {
           })}
         </nav>
 
+        {loadError && <p className="form-error">{loadError}</p>}
+
         <div className="wardrobe-results">
           <span>
             Showing <strong>{visibleItems.length}</strong> pieces
@@ -397,14 +476,18 @@ export default function WardrobePage() {
           <span>{sortOptions.find((option) => option.value === sortBy)?.label}</span>
         </div>
 
-        {visibleItems.length > 0 ? (
+        {!storageReady ? (
+          <section className="wardrobe-empty">
+            <p>Loading your wardrobe...</p>
+          </section>
+        ) : visibleItems.length > 0 ? (
           <section className="clothing-grid">
             {visibleItems.map((item) => (
               <article className="clothing-card" key={item.id}>
                 <div className="clothing-image">
                   <img src={item.image} alt={item.name} />
 
-                  <button className="delete-clothing" onClick={() => deleteClothing(item.id)} aria-label={`Delete ${item.name}`} title="Delete clothing">
+                  <button className="delete-clothing" onClick={() => deleteClothing(item)} aria-label={`Delete ${item.name}`} title="Delete clothing">
                     <Trash2 size={16} />
                   </button>
 
@@ -544,7 +627,7 @@ export default function WardrobePage() {
                       })
                     }
                   >
-                    {["Neutral", "Black", "White", "Brown", "Beige", "Grey", "Blue", "Green", "Pink", "Red", "Purple", "Yellow", "Multicolor"].map((color) => (
+                    {colorOptions.map((color) => (
                       <option key={color}>{color}</option>
                     ))}
                   </select>
@@ -563,7 +646,7 @@ export default function WardrobePage() {
                     })
                   }
                 >
-                  {["Casual", "Formal", "Smart Casual", "Streetwear", "Minimalist", "Sporty", "Vintage"].map((style) => (
+                  {styleOptions.map((style) => (
                     <option key={style}>{style}</option>
                   ))}
                 </select>
@@ -571,9 +654,9 @@ export default function WardrobePage() {
 
               {error && <p className="form-error">{error}</p>}
 
-              <button type="submit" className="primary-button submit-button">
+              <button type="submit" className="primary-button submit-button" disabled={isSaving}>
                 <Plus size={17} />
-                Save to wardrobe
+                {isSaving ? "Saving..." : "Save to wardrobe"}
               </button>
             </form>
           </section>

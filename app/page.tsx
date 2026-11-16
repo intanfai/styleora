@@ -7,23 +7,6 @@ import Sidebar from "../components/Sidebar";
 import { createClient } from "@/lib/supabase/client";
 import { useWeather } from "./context/WeatherContext";
 
-type Clothing = {
-  id: string;
-  name: string;
-  category: string;
-  color?: string;
-  style?: string;
-  image?: string;
-};
-
-type Outfit = {
-  id: string;
-  name: string;
-  items?: Clothing[];
-  style?: string;
-  activity?: string;
-};
-
 type CitySuggestion = {
   id: number;
   name: string;
@@ -32,9 +15,6 @@ type CitySuggestion = {
   latitude: number;
   longitude: number;
 };
-
-const WARDROBE_KEY = "closet-ai-wardrobe";
-const SAVED_KEY = "closet-ai-saved-outfits";
 
 function weatherIcon(code: number) {
   if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99].includes(code)) {
@@ -49,8 +29,11 @@ function weatherIcon(code: number) {
 }
 
 export default function Dashboard() {
-  const [wardrobe, setWardrobe] = useState<Clothing[]>([]);
-  const [savedOutfits, setSavedOutfits] = useState<Outfit[]>([]);
+  const supabase = useMemo(() => createClient(), []);
+
+  // Dashboard hanya butuh jumlah pakaian per kategori dan jumlah saved outfits.
+  const [categoryList, setCategoryList] = useState<string[]>([]);
+  const [savedCount, setSavedCount] = useState(0);
   const [ready, setReady] = useState(false);
   const { weather, loading: weatherLoading, error: weatherError, city, changeCity } = useWeather();
   const [searchText, setSearchText] = useState(city);
@@ -82,8 +65,6 @@ export default function Dashboard() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function loadUser() {
       const { data, error } = await supabase.auth.getUser();
 
@@ -100,7 +81,7 @@ export default function Dashboard() {
     }
 
     loadUser();
-  }, []);
+  }, [supabase]);
 
   // Menghindari penggunaan new Date() saat prerender.
   useEffect(() => {
@@ -113,33 +94,26 @@ export default function Dashboard() {
     );
   }, []);
 
-  // Membaca data wardrobe dan saved outfits dari localStorage.
+  // Membaca data wardrobe dan saved outfits dari Supabase.
   useEffect(() => {
-    try {
-      const wardrobeData = localStorage.getItem(WARDROBE_KEY);
-      const savedData = localStorage.getItem(SAVED_KEY);
+    async function loadDashboardData() {
+      try {
+        const [wardrobeResult, savedResult] = await Promise.all([supabase.from("wardrobe_items").select("category"), supabase.from("saved_outfits").select("id")]);
 
-      if (wardrobeData) {
-        const parsed: unknown = JSON.parse(wardrobeData);
+        if (wardrobeResult.error) throw wardrobeResult.error;
+        if (savedResult.error) throw savedResult.error;
 
-        if (Array.isArray(parsed)) {
-          setWardrobe(parsed as Clothing[]);
-        }
+        setCategoryList((wardrobeResult.data ?? []).map((row) => row.category as string));
+        setSavedCount((savedResult.data ?? []).length);
+      } catch (error) {
+        console.error("Failed to read Styleora dashboard data:", error);
+      } finally {
+        setReady(true);
       }
-
-      if (savedData) {
-        const parsed: unknown = JSON.parse(savedData);
-
-        if (Array.isArray(parsed)) {
-          setSavedOutfits(parsed as Outfit[]);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to read Styleora dashboard data:", error);
-    } finally {
-      setReady(true);
     }
-  }, []);
+
+    loadDashboardData();
+  }, [supabase]);
 
   // Mencari saran kota 300ms setelah user berhenti mengetik.
   useEffect(() => {
@@ -214,39 +188,39 @@ export default function Dashboard() {
   // Menghitung jumlah pakaian berdasarkan kategori.
   const counts = useMemo(() => {
     const result: Record<string, number> = {};
-    for (const item of wardrobe) {
-      result[item.category] = (result[item.category] ?? 0) + 1;
+    for (const category of categoryList) {
+      result[category] = (result[category] ?? 0) + 1;
     }
     return result;
-  }, [wardrobe]);
+  }, [categoryList]);
 
+  const totalWardrobe = categoryList.length;
   const tops = counts["Tops"] ?? 0;
   const bottoms = counts["Bottoms"] ?? 0;
   const outerwear = counts["Outerwear"] ?? 0;
   const shoes = counts["Shoes"] ?? 0;
   const accessories = counts["Accessories"] ?? 0;
 
-  // Estimasi kombinasi dari pakaian yang tersedia.
-  const combinations = tops > 0 && bottoms > 0 ? tops * bottoms * (outerwear + 1) * (shoes + 1) : 0;
+  const categoriesCovered = Object.keys(counts).length;
 
   const stats = [
     {
       label: "Total Wardrobe",
-      number: String(wardrobe.length),
+      number: String(totalWardrobe),
       caption: "Pieces in your collection",
       icon: Shirt,
     },
     {
-      label: "Outfit Combinations",
-      number: combinations.toLocaleString("en-US"),
-      caption: "Estimated combinations from your clothes",
-      icon: Sparkles,
-    },
-    {
       label: "Saved Outfits",
-      number: String(savedOutfits.length),
+      number: String(savedCount),
       caption: "Your favorite looks",
       icon: Heart,
+    },
+    {
+      label: "Categories Covered",
+      number: `${categoriesCovered}/5`,
+      caption: "Types of clothing in your closet",
+      icon: Sparkles,
     },
   ];
 

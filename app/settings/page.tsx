@@ -114,7 +114,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="app-shell">
+    <div>
       <Sidebar />
 
       <main className="account-main">

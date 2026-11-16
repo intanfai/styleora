@@ -1,83 +1,108 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Heart, Sparkles, Trash2, Shirt, ArrowRight, Bookmark, Search } from "lucide-react";
+import { Sparkles, Trash2, Shirt, ArrowRight, Bookmark, Search } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-
-type Clothing = {
-  id: string;
-  name: string;
-  category: string;
-  color: string;
-  style: string;
-  image: string;
-};
+import { fetchWardrobe, type Clothing } from "@/lib/wardrobe";
 
 type Outfit = {
   id: string;
   name: string;
   style: string;
   activity: string;
-  items: Clothing[];
+  items: Clothing[]; // pakaian yang masih ada di wardrobe
   createdAt: string;
 };
 
-const SAVED_KEY = "closet-ai-saved-outfits";
+// Baca kolom jsonb `items` -> daftar id pakaian.
+function parseItemIds(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((entry) => (entry && typeof entry === "object" ? (entry as { id?: unknown }).id : null)).filter((id): id is string => typeof id === "string");
+}
 
 export default function SavedOutfitsPage() {
+  const supabase = useMemo(() => createClient(), []);
+
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [selectedStyle, setSelectedStyle] = useState("All");
   const [search, setSearch] = useState("");
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   const router = useRouter();
-const [userName, setUserName] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
 
-useEffect(() => {
-  const supabase = createClient();
+  useEffect(() => {
+    async function loadUser() {
+      const { data, error } = await supabase.auth.getUser();
 
-  async function loadUser() {
-    const { data, error } = await supabase.auth.getUser();
+      if (error) {
+        console.error("Gagal mengambil data user:", error);
+        return;
+      }
+
+      const user = data.user;
+
+      const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.username || user?.email?.split("@")[0] || null;
+
+      setUserName(name);
+    }
+
+    loadUser();
+  }, [supabase]);
+
+  // Ambil saved outfits + wardrobe, lalu gabungkan berdasarkan id pakaian.
+  useEffect(() => {
+    async function loadOutfits() {
+      try {
+        const [wardrobe, savedResult] = await Promise.all([fetchWardrobe(supabase), supabase.from("saved_outfits").select("*").order("created_at", { ascending: false })]);
+
+        if (savedResult.error) throw savedResult.error;
+
+        const wardrobeMap = new Map(wardrobe.map((item) => [item.id, item]));
+
+        setOutfits(
+          (savedResult.data ?? []).map((row) => ({
+            id: row.id,
+            name: row.name,
+            style: row.style,
+            activity: row.activity,
+            createdAt: row.created_at,
+            // Pakaian yang sudah dihapus dari wardrobe otomatis tidak ditampilkan.
+            items: parseItemIds(row.items)
+              .map((id) => wardrobeMap.get(id))
+              .filter((item): item is Clothing => Boolean(item)),
+          })),
+        );
+      } catch (error) {
+        console.error(error);
+        setMessage("Saved outfits could not be loaded. Coba refresh halaman.");
+      } finally {
+        setReady(true);
+      }
+    }
+
+    loadOutfits();
+  }, [supabase]);
+
+  async function deleteOutfit(id: string) {
+    const confirmed = window.confirm("Hapus outfit ini dari koleksi kamu?");
+
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("saved_outfits").delete().eq("id", id);
 
     if (error) {
-      console.error("Gagal mengambil data user:", error);
+      console.error(error);
+      setMessage("Unable to update your saved collection.");
       return;
     }
 
-    const user = data.user;
-
-    const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.username || user?.email?.split("@")[0] || null;
-
-    setUserName(name);
-  }
-
-  loadUser();
-}, []);
-
-  useEffect(() => {
-    try {
-      const data = localStorage.getItem(SAVED_KEY);
-      if (data) setOutfits(JSON.parse(data) as Outfit[]);
-    } catch {
-      setMessage("Saved outfits could not be loaded.");
-    } finally {
-      setReady(true);
-    }
-  }, []);
-
-  function deleteOutfit(id: string) {
-    const updated = outfits.filter((outfit) => outfit.id !== id);
-    setOutfits(updated);
-
-    try {
-      localStorage.setItem(SAVED_KEY, JSON.stringify(updated));
-      setMessage("Outfit removed from your collection.");
-    } catch {
-      setMessage("Unable to update your saved collection.");
-    }
+    setOutfits((current) => current.filter((outfit) => outfit.id !== id));
+    setMessage("Outfit removed from your collection.");
   }
 
   const styleOptions = ["All", ...Array.from(new Set(outfits.map((outfit) => outfit.style)))];
@@ -115,8 +140,6 @@ useEffect(() => {
             <p>Your favorite combinations, all in one place. Keep the looks you love and revisit them whenever you need inspiration.</p>
           </div>
         </section>
-
-
 
         <div className="saved-toolbar">
           <label className="saved-search">
