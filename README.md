@@ -2,7 +2,7 @@
 
 Styleora is a digital wardrobe web application that helps users organize their clothing collection, generate outfit combinations with AI, and save their favorite looks. Each user has a private account, and all data (clothing details, photos, and saved outfits) is stored in the cloud so it can be accessed from any device.
 
-**Live demo:** https://your-app-name.vercel.app
+**Live demo:** https://styleorac.vercel.app/
 
 ## Features
 
